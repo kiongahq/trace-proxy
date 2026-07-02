@@ -16,7 +16,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	sink := traceproxy.HTTPSink{URL: os.Getenv("TRACE_SINK_URL"), Token: os.Getenv("TRACE_SINK_TOKEN"), Client: &http.Client{Timeout: 5 * time.Second}}
+	client := &http.Client{Timeout: 5 * time.Second}
+	var sink traceproxy.Sink = traceproxy.HTTPSink{URL: os.Getenv("TRACE_SINK_URL"), Token: os.Getenv("TRACE_SINK_TOKEN"), Client: client}
+	if os.Getenv("TRACE_SINK_FORMAT") == "kafka-rest" {
+		sink = traceproxy.KafkaRESTSink{URL: os.Getenv("TRACE_SINK_URL"), Client: client}
+	}
 	handler := traceproxy.New(upstream, env("MLAIOPS_AGENT_NAME", "unknown"), env("MLAIOPS_AGENT_VERSION", "unknown"), sink)
 	server := &http.Server{Addr: ":" + env("PORT", "8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
 	log.Printf("trace proxy listening on %s and forwarding to %s", server.Addr, upstream)

@@ -47,6 +47,30 @@ func (s HTTPSink) Emit(event Event) {
 	}
 }
 
+// KafkaRESTSink publishes events to a Kafka REST Proxy topic endpoint using
+// the Confluent envelope, e.g. http://kafka-rest:8082/topics/mlaiops.llm.traces.
+type KafkaRESTSink struct {
+	URL    string
+	Client *http.Client
+}
+
+func (s KafkaRESTSink) Emit(event Event) {
+	if s.URL == "" {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{"records": []map[string]any{{"value": event}}})
+	req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(raw))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/vnd.kafka.json.v2+json")
+	response, err := s.Client.Do(req)
+	if err == nil {
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+	}
+}
+
 func New(upstream *url.URL, agent, version string, sink Sink) http.Handler {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	original := proxy.Director
