@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/mlaiops/platform/internal/traceproxy"
+	"github.com/ml-ai-ops/platform/internal/traceproxy"
 )
 
 func main() {
