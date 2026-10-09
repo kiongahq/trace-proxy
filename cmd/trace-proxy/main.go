@@ -1,14 +1,14 @@
 package main
 
 import (
-	"github.com/kiongahq/platform/internal/runtimeconfig"
+	"github.com/kiongahq/trace-proxy/internal/runtimeconfig"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
 
-	"github.com/kiongahq/platform/internal/traceproxy"
+	"github.com/kiongahq/trace-proxy/internal/traceproxy"
 )
 
 func main() {
