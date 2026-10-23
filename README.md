@@ -1,38 +1,66 @@
 # trace-proxy
 
-Kionga's LLM egress. Agents send their LLM calls here instead of to a provider. The
-proxy forwards each call to the configured upstream and publishes a trace of it
-(prompt, response, timing, token usage, agent name and version) to Kafka, without
-any change to agent code. Provider keys stay in the proxy's environment and never
-appear in traces or logs.
+[![CI](https://github.com/kiongahq/trace-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/kiongahq/trace-proxy/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENCE)
 
-It exposes an **OpenAI-compatible** API, so any OpenAI-style client works by
-pointing its base URL here. The upstream can be a hosted provider or a self-hosted
-OpenAI-compatible server such as vLLM.
+The Kionga LLM egress proxy: forwards agent LLM calls and records a trace event for each one.
 
-Part of [Kionga](https://github.com/kiongahq): see the
-[architecture overview](https://github.com/kiongahq#how-the-pieces-connect) and the
-[deploy](https://github.com/kiongahq/deploy) repo for running it with everything else.
+## Background
 
-## Configuration
+Kionga is a self-hosted platform for machine learning, data and AI agents. Agents
+that use an OpenAI-compatible backend send their LLM calls to this proxy instead of
+straight to the provider. The proxy forwards each request unchanged to the
+configured upstream, a hosted provider or a self-hosted server such as vLLM, and
+publishes one event per call to Kafka or an HTTP endpoint. Agent code needs no
+change: you point its base URL at the proxy.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PORT` | `8081` | Listen port |
-| `LLM_UPSTREAM_URL` | `http://localhost:8000` | Provider or self-hosted server to forward to |
-| `TRACE_SINK_FORMAT` | HTTP | `kafka-rest` to publish through a Kafka REST proxy |
-| `TRACE_SINK_URL` | unset | e.g. `http://kafka-rest:8082/topics/mlaiops.llm.traces` |
-| `TRACE_SINK_TOKEN` | unset | Bearer token sent to an HTTP trace sink |
-| `MLAIOPS_AGENT_NAME` / `MLAIOPS_AGENT_VERSION` | `unknown` | Labels added to every trace |
+Each event records the agent name and version, the session ID, the upstream HTTP
+status, the duration and a timestamp. Request and response bodies are not recorded.
 
-`GET /healthz` reports liveness.
+## Install
 
-## Develop
+The image is published as `ghcr.io/kiongahq/trace-proxy`. To build from source you
+need Go 1.26:
 
 ```bash
-make verify          # gofmt, vet, race tests, build
-make image           # ghcr.io/kiongahq/trace-proxy:dev
+git clone git@github.com:kiongahq/trace-proxy.git
+cd trace-proxy
+make build          # bin/trace-proxy
 ```
 
-CI publishes `ghcr.io/kiongahq/trace-proxy` on pushes to `main` (`latest`,
-`sha-<short>`) and on `v*` tags.
+## Usage
+
+```bash
+LLM_UPSTREAM_URL=https://api.openai.com \
+TRACE_SINK_URL=http://localhost:9999/traces \
+MLAIOPS_AGENT_NAME=support-bot \
+./bin/trace-proxy                                  # listens on :8081
+
+curl http://localhost:8081/v1/chat/completions \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H 'X-Session-ID: demo-1' \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+The client's own `Authorization` header goes to the upstream as sent. Set
+`TRACE_SINK_FORMAT=kafka-rest` and a Kafka REST topic URL (for example
+`http://kafka-rest:8082/topics/mlaiops.llm.traces`) to publish to Kafka.
+`GET /healthz` reports liveness. The
+[Configuration reference](https://kiongahq.github.io/docs/reference/configuration/)
+lists every setting.
+
+## Documentation
+
+- Product documentation: [Build agents](https://kiongahq.github.io/docs/guides/agents/)
+- Engineering handbook: [AI and observability](https://kiongahq.github.io/docs/engineering/components/ai-observability/)
+- How this repository is laid out: [ARCHITECTURE.md](ARCHITECTURE.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, the checks CI
+runs and the commit conventions.
+
+## License
+
+[MIT](LICENCE) © Kionga contributors
