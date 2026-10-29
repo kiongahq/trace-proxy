@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -72,13 +73,21 @@ func (s KafkaRESTSink) Emit(event Event) {
 }
 
 func New(upstream *url.URL, agent, version string, sink Sink) http.Handler {
-	proxy := httputil.NewSingleHostReverseProxy(upstream)
-	original := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		original(r)
-		r.Header.Set("X-MLAIOps-Agent", agent)
-		r.Header.Set("X-MLAIOps-Agent-Version", version)
-	}
+	proxy := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+		target := *upstream
+		base := strings.TrimSuffix(target.EscapedPath(), "/")
+		path := r.In.URL.EscapedPath()
+		if strings.HasSuffix(base, "/v1") && (path == "/v1" || strings.HasPrefix(path, "/v1/")) {
+			target.Path = strings.TrimSuffix(strings.TrimSuffix(target.Path, "/"), "/v1")
+			if target.RawPath != "" {
+				target.RawPath = strings.TrimSuffix(base, "/v1")
+			}
+		}
+		r.SetURL(&target)
+		r.SetXForwarded()
+		r.Out.Header.Set("X-MLAIOps-Agent", agent)
+		r.Out.Header.Set("X-MLAIOps-Agent-Version", version)
+	}}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			w.Header().Set("Content-Type", "application/json")
