@@ -50,6 +50,12 @@ The client's own `Authorization` header goes to the upstream as sent. Set
 [Configuration reference](https://kiongahq.github.io/docs/reference/configuration/)
 lists every setting.
 
+`LLM_UPSTREAM_URL` may be an origin, such as `http://localhost:8000` for vLLM
+or `https://api.openai.com` for OpenAI. A base ending in `/v1`, such as
+`https://api.openai.com/v1`, is also supported: requests already starting with
+`/v1` are forwarded with that segment only once. Other paths are joined to the
+configured base normally.
+
 ## Documentation
 
 - Product documentation: [Build agents](https://kiongahq.github.io/docs/guides/agents/)
