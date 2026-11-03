@@ -13,7 +13,7 @@ import (
 
 const (
 	supportKey = "kionga-test-support-key-0123456789"
-	otherKey   = "kionga-test-other-key-0123456789ab"
+	otherKey   = "kionga-test-other-key-000000000000"
 )
 
 func testKeys(t *testing.T) *KeyStore {
