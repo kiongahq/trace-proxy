@@ -82,3 +82,25 @@ func TestKeysLoadFromMountedFile(t *testing.T) {
 		t.Fatalf("TRACE_PROXY_KEYS_FILE was not honoured: %v", err)
 	}
 }
+
+func TestConfigureUpstreamCredentialFromFile(t *testing.T) {
+	clearProxyEnv(t)
+	file := t.TempDir() + "/upstream-key"
+	if err := os.WriteFile(file, []byte("sk-from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LLM_UPSTREAM_API_KEY_FILE", file)
+	t.Setenv("LLM_UPSTREAM_AUTH_HEADER", "x-api-key")
+	t.Setenv("TRACE_PROXY_KEYS", `[{"key_id":"a","key_sha256":"`+traceproxy.HashKey("k")+`","project":"p"}]`)
+	if err := runtimeconfig.Load(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := configure()
+	if err != nil || cfg.UpstreamCredential.Header != "X-Api-Key" || cfg.UpstreamCredential.Value != "sk-from-file" {
+		t.Fatalf("upstream credential not loaded from file: %+v %v", cfg.UpstreamCredential, err)
+	}
+	t.Setenv("LLM_UPSTREAM_AUTH_HEADER", "not a header")
+	if _, err := configure(); err == nil {
+		t.Fatal("an invalid header name must be rejected")
+	}
+}

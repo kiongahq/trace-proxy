@@ -20,7 +20,9 @@ it for OpenAI-compatible calls, which is why the agent runtime's `openai` and
 ### `cmd/trace-proxy`
 
 `main.go` loads configuration, parses `LLM_UPSTREAM_URL` (default
-`http://localhost:8000`), picks the sink from `TRACE_SINK_FORMAT`, and serves on
+`http://localhost:8000`), the project keys (`TRACE_PROXY_KEYS`) and the upstream
+credential (`LLM_UPSTREAM_API_KEY`, `LLM_UPSTREAM_AUTH_HEADER`,
+`LLM_UPSTREAM_AUTH_SCHEME`), picks the sink from `TRACE_SINK_FORMAT`, and serves on
 `PORT` (default `8081`) with 120-second read, write and idle timeouts.
 
 ### `internal/traceproxy`
@@ -70,9 +72,13 @@ A two-stage build: a static, stripped binary from `golang:1.26.10-alpine`, run o
 
 ## Invariants
 
-- **Transparent forwarding.** The proxy does not rewrite request or response bodies
-  and does not add or remove credentials. The client's `Authorization` header goes
-  upstream as sent, and no credential is copied into an event.
+- **Authenticated, credential-isolating forwarding.** The proxy does not rewrite
+  request or response bodies. Every request except `/healthz` needs a project
+  key. The caller's credential headers never reach the upstream; the proxy sends
+  its own `LLM_UPSTREAM_API_KEY` (header `LLM_UPSTREAM_AUTH_HEADER`) or nothing.
+  No key or credential is copied into an event or a log. The only passthrough is
+  the explicit development mode `TRACE_PROXY_ALLOW_UNAUTHENTICATED=true`, which
+  production and an injected provider key both refuse.
 - **Observability never breaks the call.** Events are emitted asynchronously with a
   5-second client timeout; a slow or failing sink cannot fail or delay the
   response.
@@ -83,11 +89,14 @@ A two-stage build: a static, stripped binary from `golang:1.26.10-alpine`, run o
 
 - **agent-runtime**: in the local Compose stack, `MLAIOPS_LLM_BASE_URL` defaults to
   `http://trace-proxy:8081/v1`, so `openai` and `openai-compatible` agent calls go
-  through one shared proxy. The `anthropic` backend calls Anthropic directly and is
+  through one shared proxy. The agent's `OPENAI_API_KEY` is then its Kionga
+  project key; the provider key belongs in the proxy's `LLM_UPSTREAM_API_KEY`. The `anthropic` backend calls Anthropic directly and is
   not traced here.
 - **platform**: on Kubernetes, the operator adds the proxy as a `trace-proxy`
   sidecar container (port `8081`, image `TRACE_PROXY_IMAGE`) to every agent pod,
-  with `MLAIOPS_AGENT_NAME` set to the agent's name.
+  with `MLAIOPS_AGENT_NAME` set to the agent's name. The sidecar needs
+  `TRACE_PROXY_KEYS` (or `TRACE_PROXY_KEYS_FILE`) and, for hosted providers,
+  `LLM_UPSTREAM_API_KEY`.
 - **Kafka**: `deploy/compose.yaml` sets `TRACE_SINK_FORMAT=kafka-rest` and
   publishes to the `mlaiops.llm.traces` topic through the `kafka-rest` service.
 

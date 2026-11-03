@@ -12,10 +12,11 @@ that use an OpenAI-compatible backend send their LLM calls to this proxy instead
 straight to the provider. The proxy forwards each request unchanged to the
 configured upstream, a hosted provider or a self-hosted server such as vLLM, and
 publishes one event per call to Kafka or an HTTP endpoint. Agent code needs no
-change: you point its base URL at the proxy.
+change: you point its base URL at the proxy and use a Kionga project key as its API
+key, while the provider key stays in the proxy.
 
-Each event records the agent name and version, the session ID, the upstream HTTP
-status, the duration and a timestamp. Request and response bodies are not recorded.
+Each event records the agent name and version, the project and key ID of the
+caller, the session ID, the upstream HTTP status, the duration and a timestamp. Request and response bodies are not recorded.
 
 ## Install
 
@@ -60,7 +61,25 @@ entry in `TRACE_PROXY_KEYS` has `key_id` (recorded in traces), `key_sha256`
 overrides `MLAIOPS_AGENT_NAME` for that key. The proxy refuses to start without
 keys. For local development only, `TRACE_PROXY_ALLOW_UNAUTHENTICATED=true` runs it
 without keys and forwards the client's own credentials unchanged; production
-(`KIONGA_ENVIRONMENT=production`) refuses that mode.
+(`KIONGA_ENVIRONMENT=production`) refuses that mode, and it cannot be combined
+with `LLM_UPSTREAM_API_KEY`.
+
+The provider key stays in the proxy. With keys configured, the proxy removes the
+caller's `Authorization`, `x-api-key`, `api-key` and `Proxy-Authorization` headers
+and, when `LLM_UPSTREAM_API_KEY` is set, adds the provider key itself. Without
+`LLM_UPSTREAM_API_KEY` no credential goes upstream, which suits a self-hosted
+server such as vLLM. Neither key is written to a trace or a log.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TRACE_PROXY_KEYS` / `TRACE_PROXY_KEYS_FILE` | required | JSON array of hashed project keys |
+| `TRACE_PROXY_ALLOW_UNAUTHENTICATED` | `false` | Development only: no keys, client credentials pass through |
+| `LLM_UPSTREAM_URL` | `http://localhost:8000` | Upstream origin or `/v1` base |
+| `LLM_UPSTREAM_API_KEY` / `LLM_UPSTREAM_API_KEY_FILE` | unset | Provider key injected on every authenticated call |
+| `LLM_UPSTREAM_AUTH_HEADER` | `Authorization` | `x-api-key` for Anthropic, `api-key` for Azure OpenAI |
+| `LLM_UPSTREAM_AUTH_SCHEME` | `Bearer` for `Authorization`, else none | Prefix before the key |
+| `TRACE_SINK_URL`, `TRACE_SINK_FORMAT`, `TRACE_SINK_TOKEN` | unset | Where events go |
+| `MLAIOPS_AGENT_NAME`, `MLAIOPS_AGENT_VERSION` | `unknown` | Default agent identity for events |
 
 Set
 `TRACE_SINK_FORMAT=kafka-rest` and a Kafka REST topic URL (for example

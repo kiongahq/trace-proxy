@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -88,6 +89,47 @@ type Config struct {
 	// AllowUnauthenticated serves without inbound keys and forwards the
 	// client's own credentials. Development only; it must be chosen explicitly.
 	AllowUnauthenticated bool
+	// UpstreamCredential is set on every authenticated upstream request in
+	// place of the caller's credentials. Empty sends no credential.
+	UpstreamCredential UpstreamCredential
+}
+
+// UpstreamCredential is the provider credential the proxy injects.
+type UpstreamCredential struct {
+	// Header is the header name: Authorization (OpenAI and compatible),
+	// x-api-key (Anthropic) or api-key (Azure OpenAI).
+	Header string
+	// Value is the full header value, for example "Bearer sk-...".
+	Value string
+}
+
+var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// NewUpstreamCredential builds the injected credential from the provider key,
+// header name and scheme. The scheme defaults to Bearer for Authorization and
+// to none for any other header.
+func NewUpstreamCredential(key, header, scheme string) (UpstreamCredential, error) {
+	key, header, scheme = strings.TrimSpace(key), strings.TrimSpace(header), strings.TrimSpace(scheme)
+	if key == "" {
+		return UpstreamCredential{}, nil
+	}
+	if header == "" {
+		header = "Authorization"
+	}
+	if !headerName.MatchString(header) {
+		return UpstreamCredential{}, errors.New("LLM_UPSTREAM_AUTH_HEADER is not a valid header name")
+	}
+	if strings.EqualFold(header, "Authorization") && scheme == "" {
+		scheme = "Bearer"
+	}
+	if strings.ContainsAny(key+scheme, "\r\n") || strings.ContainsAny(scheme, " \t") {
+		return UpstreamCredential{}, errors.New("LLM_UPSTREAM_API_KEY and LLM_UPSTREAM_AUTH_SCHEME must be single-line values")
+	}
+	value := key
+	if scheme != "" {
+		value = scheme + " " + key
+	}
+	return UpstreamCredential{Header: http.CanonicalHeaderKey(header), Value: value}, nil
 }
 
 // clientCredentialHeaders are removed from every authenticated request: they
@@ -108,6 +150,12 @@ func New(cfg Config) (http.Handler, error) {
 	if cfg.Keys != nil && cfg.AllowUnauthenticated {
 		return nil, errors.New("set only one of TRACE_PROXY_KEYS and TRACE_PROXY_ALLOW_UNAUTHENTICATED")
 	}
+	if cfg.AllowUnauthenticated && cfg.UpstreamCredential.Value != "" {
+		// Injecting the provider key without inbound authentication would make
+		// the proxy an open relay for that key.
+		return nil, errors.New("LLM_UPSTREAM_API_KEY requires TRACE_PROXY_KEYS; it cannot be used with TRACE_PROXY_ALLOW_UNAUTHENTICATED")
+	}
+	credential := cfg.UpstreamCredential
 	if cfg.Sink == nil {
 		cfg.Sink = HTTPSink{}
 	}
@@ -128,6 +176,9 @@ func New(cfg Config) (http.Handler, error) {
 		if key, ok := r.In.Context().Value(callerKey{}).(APIKey); ok {
 			for _, header := range clientCredentialHeaders {
 				r.Out.Header.Del(header)
+			}
+			if credential.Value != "" {
+				r.Out.Header.Set(credential.Header, credential.Value)
 			}
 			if key.Agent != "" {
 				callerAgent = key.Agent

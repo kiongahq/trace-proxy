@@ -28,7 +28,10 @@ func main() {
 		log.Fatal(err)
 	}
 	server := &http.Server{Addr: ":" + env("PORT", "8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
-	mode := "project keys required"
+	mode := "project keys required, no upstream credential"
+	if cfg.UpstreamCredential.Value != "" {
+		mode = "project keys required, upstream credential injected as " + cfg.UpstreamCredential.Header
+	}
 	if cfg.AllowUnauthenticated {
 		mode = "UNAUTHENTICATED (TRACE_PROXY_ALLOW_UNAUTHENTICATED=true; development only)"
 		log.Printf("WARNING: trace proxy accepts requests without a project key and forwards client credentials")
@@ -60,6 +63,9 @@ func configure() (traceproxy.Config, error) {
 			return traceproxy.Config{}, errors.New("TRACE_PROXY_ALLOW_UNAUTHENTICATED must be true or false")
 		}
 		cfg.AllowUnauthenticated = allow
+	}
+	if cfg.UpstreamCredential, err = traceproxy.NewUpstreamCredential(os.Getenv("LLM_UPSTREAM_API_KEY"), os.Getenv("LLM_UPSTREAM_AUTH_HEADER"), os.Getenv("LLM_UPSTREAM_AUTH_SCHEME")); err != nil {
+		return traceproxy.Config{}, err
 	}
 	if cfg.AllowUnauthenticated && os.Getenv("KIONGA_ENVIRONMENT") == "production" {
 		return traceproxy.Config{}, fmt.Errorf("production requires TRACE_PROXY_KEYS; TRACE_PROXY_ALLOW_UNAUTHENTICATED is for local development only")
