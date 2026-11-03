@@ -27,10 +27,22 @@ it for OpenAI-compatible calls, which is why the agent runtime's `openai` and
 
 `proxy.go` holds the whole data path:
 
-- `New` wraps the reverse proxy. Its director adds `X-MLAIOps-Agent` and
-  `X-MLAIOps-Agent-Version` headers to the upstream request. A `statusRecorder`
-  captures the upstream status code.
-- `Event` is the trace record: `agent`, `version`, `session_id` (from the client's
+- `New(Config)` wraps the reverse proxy. It refuses to build without inbound
+  keys unless `AllowUnauthenticated` is set. The handler authenticates every
+  request except `/healthz` against the `KeyStore` (`keys.go`) before proxying and
+  answers an unknown or missing key with an OpenAI-shaped `401`
+  (`{"error":{"type":"invalid_api_key",...}}`); the upstream never sees it. The
+  rewrite step removes the caller's credential headers and adds
+  `X-MLAIOps-Agent` and `X-MLAIOps-Agent-Version`. A `statusRecorder` captures
+  the upstream status code; it implements `Flush` and `Unwrap`, so the reverse
+  proxy flushes each `text/event-stream` chunk at once and streamed completions
+  arrive token by token.
+- `KeyStore` holds only SHA-256 hashes of project keys, parsed from
+  `TRACE_PROXY_KEYS`. It accepts `Authorization: Bearer <key>`, `x-api-key` or
+  `api-key` and compares the hash with every stored hash in constant time.
+- `Event` is the trace record: `agent` (the key's agent, or
+  `MLAIOPS_AGENT_NAME`), `version`, `project` and `key_id` (from the matched key;
+  the key itself is never recorded), `session_id` (from the client's
   `X-Session-ID` header), `status_code`, `duration_ms`, `created_at`, and an
   optional `model` field that the proxy does not fill in today.
 - `Sink` is the publishing interface. `HTTPSink` posts the event as JSON to

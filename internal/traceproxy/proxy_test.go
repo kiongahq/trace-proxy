@@ -26,7 +26,7 @@ func TestProxyForwardsAndEmitsTrace(t *testing.T) {
 	defer upstream.Close()
 	target, _ := url.Parse(upstream.URL)
 	events := make(channelSink, 1)
-	server := httptest.NewServer(New(target, "support", "2", events))
+	server := httptest.NewServer(openProxy(t, target, events))
 	defer server.Close()
 	req, _ := http.NewRequest(http.MethodPost, server.URL+"/v1/chat/completions", nil)
 	req.Header.Set("X-Session-ID", "session-1")
@@ -62,7 +62,7 @@ func TestProxyRoutesHostedUpstream(t *testing.T) {
 				t.Fatal(err)
 			}
 			events := make(channelSink, 1)
-			server := httptest.NewServer(New(target, "support", "2", events))
+			server := httptest.NewServer(openProxy(t, target, events))
 			defer server.Close()
 			resp, err := http.Get(server.URL + tc.path)
 			if err != nil {
@@ -96,7 +96,7 @@ func TestProxyPreservesHeadersAndQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := make(channelSink, 1)
-	server := httptest.NewServer(New(target, "support", "2", events))
+	server := httptest.NewServer(openProxy(t, target, events))
 	defer server.Close()
 	req, err := http.NewRequest(http.MethodGet, server.URL+"/v1/models?model=test", nil)
 	if err != nil {
@@ -227,5 +227,16 @@ func newTestProxy(t *testing.T, upstream string, sink Sink) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(target, "support", "2", sink)
+	return openProxy(t, target, sink)
+}
+
+// openProxy is the explicit development mode: no inbound keys, client
+// credentials forwarded as sent.
+func openProxy(t *testing.T, target *url.URL, sink Sink) http.Handler {
+	t.Helper()
+	handler, err := New(Config{Upstream: target, Agent: "support", Version: "2", Sink: sink, AllowUnauthenticated: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler
 }

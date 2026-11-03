@@ -30,20 +30,39 @@ make build          # bin/trace-proxy
 
 ## Usage
 
+Every request except `GET /healthz` must carry a Kionga project key. Generate a
+key, store only its SHA-256 in `TRACE_PROXY_KEYS` (or a file named by
+`TRACE_PROXY_KEYS_FILE`), and give the key itself to the agent:
+
 ```bash
+KEY=kpk_$(openssl rand -hex 24)
+HASH=$(printf %s "$KEY" | shasum -a 256 | cut -d' ' -f1)
+export TRACE_PROXY_KEYS='[{"key_id":"support-prod","key_sha256":"'$HASH'","project":"customer-care","agent":"support-bot"}]'
+
 LLM_UPSTREAM_URL=https://api.openai.com \
 TRACE_SINK_URL=http://localhost:9999/traces \
-MLAIOPS_AGENT_NAME=support-bot \
 ./bin/trace-proxy                                  # listens on :8081
 
 curl http://localhost:8081/v1/chat/completions \
-  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Authorization: Bearer $KEY" \
   -H 'X-Session-ID: demo-1' \
   -H 'Content-Type: application/json' \
   -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-The client's own `Authorization` header goes to the upstream as sent. Set
+Agents send the key the way their SDK sends a provider key:
+`Authorization: Bearer <key>` (OpenAI clients), `x-api-key` (Anthropic clients) or
+`api-key` (Azure clients). Point the SDK's API key setting at the project key. A
+missing or unknown key gets `401` with
+`{"error":{"type":"invalid_api_key",...}}` and never reaches the upstream. Each
+entry in `TRACE_PROXY_KEYS` has `key_id` (recorded in traces), `key_sha256`
+(lowercase hex), `project` (recorded in traces) and an optional `agent` that
+overrides `MLAIOPS_AGENT_NAME` for that key. The proxy refuses to start without
+keys. For local development only, `TRACE_PROXY_ALLOW_UNAUTHENTICATED=true` runs it
+without keys and forwards the client's own credentials unchanged; production
+(`KIONGA_ENVIRONMENT=production`) refuses that mode.
+
+Set
 `TRACE_SINK_FORMAT=kafka-rest` and a Kafka REST topic URL (for example
 `http://kafka-rest:8082/topics/mlaiops.llm.traces`) to publish to Kafka.
 `GET /healthz` reports liveness. The

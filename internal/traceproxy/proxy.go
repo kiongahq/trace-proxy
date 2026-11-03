@@ -2,7 +2,9 @@ package traceproxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -12,8 +14,12 @@ import (
 )
 
 type Event struct {
-	Agent      string    `json:"agent"`
-	Version    string    `json:"version"`
+	Agent   string `json:"agent"`
+	Version string `json:"version"`
+	// Project and KeyID identify the authenticated caller. The key itself is
+	// never recorded.
+	Project    string    `json:"project,omitempty"`
+	KeyID      string    `json:"key_id,omitempty"`
 	SessionID  string    `json:"session_id"`
 	Model      string    `json:"model,omitempty"`
 	StatusCode int       `json:"status_code"`
@@ -72,7 +78,40 @@ func (s KafkaRESTSink) Emit(event Event) {
 	}
 }
 
-func New(upstream *url.URL, agent, version string, sink Sink) http.Handler {
+// Config configures the proxy handler.
+type Config struct {
+	Upstream       *url.URL
+	Agent, Version string
+	Sink           Sink
+	// Keys authenticates inbound requests. Required unless AllowUnauthenticated.
+	Keys *KeyStore
+	// AllowUnauthenticated serves without inbound keys and forwards the
+	// client's own credentials. Development only; it must be chosen explicitly.
+	AllowUnauthenticated bool
+}
+
+// clientCredentialHeaders are removed from every authenticated request: they
+// carry the caller's Kionga key, which must never reach the provider.
+var clientCredentialHeaders = []string{"Authorization", "Api-Key", "X-Api-Key", "Proxy-Authorization"}
+
+type callerKey struct{}
+
+// New returns the proxy handler. It refuses a configuration without inbound
+// keys unless AllowUnauthenticated is set.
+func New(cfg Config) (http.Handler, error) {
+	if cfg.Upstream == nil || cfg.Upstream.Scheme == "" || cfg.Upstream.Host == "" {
+		return nil, errors.New("LLM_UPSTREAM_URL must be an absolute URL")
+	}
+	if cfg.Keys == nil && !cfg.AllowUnauthenticated {
+		return nil, errors.New("trace-proxy requires TRACE_PROXY_KEYS (or TRACE_PROXY_KEYS_FILE); set TRACE_PROXY_ALLOW_UNAUTHENTICATED=true only for local development")
+	}
+	if cfg.Keys != nil && cfg.AllowUnauthenticated {
+		return nil, errors.New("set only one of TRACE_PROXY_KEYS and TRACE_PROXY_ALLOW_UNAUTHENTICATED")
+	}
+	if cfg.Sink == nil {
+		cfg.Sink = HTTPSink{}
+	}
+	upstream, agent, version, sink := cfg.Upstream, cfg.Agent, cfg.Version, cfg.Sink
 	proxy := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
 		target := *upstream
 		base := strings.TrimSuffix(target.EscapedPath(), "/")
@@ -85,7 +124,16 @@ func New(upstream *url.URL, agent, version string, sink Sink) http.Handler {
 		}
 		r.SetURL(&target)
 		r.SetXForwarded()
-		r.Out.Header.Set("X-MLAIOps-Agent", agent)
+		callerAgent := agent
+		if key, ok := r.In.Context().Value(callerKey{}).(APIKey); ok {
+			for _, header := range clientCredentialHeaders {
+				r.Out.Header.Del(header)
+			}
+			if key.Agent != "" {
+				callerAgent = key.Agent
+			}
+		}
+		r.Out.Header.Set("X-MLAIOps-Agent", callerAgent)
 		r.Out.Header.Set("X-MLAIOps-Agent-Version", version)
 	}}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,12 +142,25 @@ func New(upstream *url.URL, agent, version string, sink Sink) http.Handler {
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 			return
 		}
+		event := Event{Agent: agent, Version: version, SessionID: r.Header.Get("X-Session-ID")}
+		if cfg.Keys != nil {
+			key, ok := cfg.Keys.Authenticate(r.Header)
+			if !ok {
+				writeInvalidKey(w)
+				return
+			}
+			event.Project, event.KeyID = key.Project, key.ID
+			if key.Agent != "" {
+				event.Agent = key.Agent
+			}
+			r = r.WithContext(context.WithValue(r.Context(), callerKey{}, key))
+		}
 		start := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		proxy.ServeHTTP(recorder, r)
-		event := Event{Agent: agent, Version: version, SessionID: r.Header.Get("X-Session-ID"), StatusCode: recorder.status, DurationMS: time.Since(start).Milliseconds(), CreatedAt: time.Now().UTC()}
+		event.StatusCode, event.DurationMS, event.CreatedAt = recorder.status, time.Since(start).Milliseconds(), time.Now().UTC()
 		go sink.Emit(event)
-	})
+	}), nil
 }
 
 // statusRecorder captures the status the client receives. It exposes Flush and

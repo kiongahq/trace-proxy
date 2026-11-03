@@ -1,13 +1,17 @@
 package main
 
 import (
-	"github.com/kiongahq/trace-proxy/internal/runtimeconfig"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/kiongahq/trace-proxy/internal/runtimeconfig"
 	"github.com/kiongahq/trace-proxy/internal/traceproxy"
 )
 
@@ -15,21 +19,54 @@ func main() {
 	if err := runtimeconfig.Load(); err != nil {
 		log.Fatal(err)
 	}
-	raw := env("LLM_UPSTREAM_URL", "http://localhost:8000")
-	upstream, err := url.Parse(raw)
+	cfg, err := configure()
 	if err != nil {
 		log.Fatal(err)
+	}
+	handler, err := traceproxy.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	server := &http.Server{Addr: ":" + env("PORT", "8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
+	mode := "project keys required"
+	if cfg.AllowUnauthenticated {
+		mode = "UNAUTHENTICATED (TRACE_PROXY_ALLOW_UNAUTHENTICATED=true; development only)"
+		log.Printf("WARNING: trace proxy accepts requests without a project key and forwards client credentials")
+	}
+	log.Printf("trace proxy listening on %s and forwarding to %s; %s", server.Addr, cfg.Upstream.Redacted(), mode)
+	log.Fatal(server.ListenAndServe())
+}
+
+// configure builds the proxy configuration from the environment.
+func configure() (traceproxy.Config, error) {
+	upstream, err := url.Parse(env("LLM_UPSTREAM_URL", "http://localhost:8000"))
+	if err != nil {
+		return traceproxy.Config{}, errors.New("LLM_UPSTREAM_URL is not a valid URL")
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	var sink traceproxy.Sink = traceproxy.HTTPSink{URL: os.Getenv("TRACE_SINK_URL"), Token: os.Getenv("TRACE_SINK_TOKEN"), Client: client}
 	if os.Getenv("TRACE_SINK_FORMAT") == "kafka-rest" {
 		sink = traceproxy.KafkaRESTSink{URL: os.Getenv("TRACE_SINK_URL"), Client: client}
 	}
-	handler := traceproxy.New(upstream, env("MLAIOPS_AGENT_NAME", "unknown"), env("MLAIOPS_AGENT_VERSION", "unknown"), sink)
-	server := &http.Server{Addr: ":" + env("PORT", "8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
-	log.Printf("trace proxy listening on %s and forwarding to %s", server.Addr, upstream)
-	log.Fatal(server.ListenAndServe())
+	cfg := traceproxy.Config{Upstream: upstream, Agent: env("MLAIOPS_AGENT_NAME", "unknown"), Version: env("MLAIOPS_AGENT_VERSION", "unknown"), Sink: sink}
+	if raw := strings.TrimSpace(os.Getenv("TRACE_PROXY_KEYS")); raw != "" {
+		if cfg.Keys, err = traceproxy.ParseKeys(raw); err != nil {
+			return traceproxy.Config{}, err
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("TRACE_PROXY_ALLOW_UNAUTHENTICATED")); value != "" {
+		allow, err := strconv.ParseBool(value)
+		if err != nil {
+			return traceproxy.Config{}, errors.New("TRACE_PROXY_ALLOW_UNAUTHENTICATED must be true or false")
+		}
+		cfg.AllowUnauthenticated = allow
+	}
+	if cfg.AllowUnauthenticated && os.Getenv("KIONGA_ENVIRONMENT") == "production" {
+		return traceproxy.Config{}, fmt.Errorf("production requires TRACE_PROXY_KEYS; TRACE_PROXY_ALLOW_UNAUTHENTICATED is for local development only")
+	}
+	return cfg, nil
 }
+
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
