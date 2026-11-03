@@ -1,0 +1,2 @@
+# Fake project key used only by the inbound-auth unit tests (otherKey in keys_test.go).
+b24dd13d23952d5fbd0452eec13ce02a681e07c5:internal/traceproxy/keys_test.go:generic-api-key:16
