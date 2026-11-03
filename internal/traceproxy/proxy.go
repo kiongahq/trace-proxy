@@ -102,12 +102,36 @@ func New(upstream *url.URL, agent, version string, sink Sink) http.Handler {
 	})
 }
 
+// statusRecorder captures the status the client receives. It exposes Flush and
+// Unwrap so httputil.ReverseProxy (through http.ResponseController) can flush
+// each server-sent event to the client as soon as the upstream writes it.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status      int
+	wroteHeader bool
 }
 
 func (w *statusRecorder) WriteHeader(status int) {
-	w.status = status
+	if !w.wroteHeader {
+		w.status = status
+		w.wroteHeader = true
+	}
 	w.ResponseWriter.WriteHeader(status)
 }
+
+func (w *statusRecorder) Write(body []byte) (int, error) {
+	if !w.wroteHeader {
+		w.status = http.StatusOK
+		w.wroteHeader = true
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+// Flush sends buffered data to the client when the underlying writer can.
+func (w *statusRecorder) Flush() {
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer for the
+// features statusRecorder does not wrap (deadlines, hijacking, full duplex).
+func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }

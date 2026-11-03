@@ -1,11 +1,13 @@
 package traceproxy
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -135,4 +137,95 @@ func TestKafkaRESTSinkUsesConfluentEnvelope(t *testing.T) {
 	if value["agent"] != "support" || value["session_id"] != "sess-9" {
 		t.Fatalf("unexpected event value: %v", value)
 	}
+}
+
+func TestStatusRecorderSupportsResponseController(t *testing.T) {
+	inner := httptest.NewRecorder()
+	recorder := &statusRecorder{ResponseWriter: inner, status: http.StatusOK}
+	if err := http.NewResponseController(recorder).Flush(); err != nil {
+		t.Fatalf("Flush through ResponseController: %v", err)
+	}
+	if !inner.Flushed {
+		t.Fatal("the underlying writer was not flushed")
+	}
+	if recorder.Unwrap() != inner {
+		t.Fatal("Unwrap must return the wrapped writer")
+	}
+	_, _ = recorder.Write([]byte("x"))
+	recorder.WriteHeader(http.StatusTeapot) // superfluous: the implicit 200 stands
+	if recorder.status != http.StatusOK {
+		t.Fatalf("an implicit 200 must be recorded, got %d", recorder.status)
+	}
+}
+
+// TestProxyStreamsSSEIncrementally: the client must see the first event while
+// the upstream is still holding the second one back.
+func TestProxyStreamsSSEIncrementally(t *testing.T) {
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"delta\":\"Hel\"}\n\n"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-time.After(5 * time.Second):
+		}
+		_, _ = w.Write([]byte("data: {\"delta\":\"lo\"}\n\ndata: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+	events := make(channelSink, 1)
+	server := httptest.NewServer(newTestProxy(t, upstream.URL, events))
+	defer server.Close()
+	// The request runs in the background: without flushing, even the response
+	// headers stay buffered in the proxy until the upstream finishes.
+	type result struct {
+		reader *bufio.Reader
+		body   io.Closer
+		first  string
+		err    error
+	}
+	first := make(chan result, 1)
+	go func() {
+		response, err := http.Post(server.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"stream":true}`))
+		if err != nil {
+			first <- result{err: err}
+			return
+		}
+		reader := bufio.NewReader(response.Body)
+		line, err := reader.ReadString('\n')
+		first <- result{reader: reader, body: response.Body, first: line, err: err}
+	}()
+	var got result
+	select {
+	case got = <-first:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		defer func() { _ = got.body.Close() }()
+		if !strings.Contains(got.first, "Hel") {
+			t.Fatalf("unexpected first event %q", got.first)
+		}
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("the first SSE event was buffered until the stream ended")
+	}
+	reader := got.reader
+	close(release)
+	rest, _ := io.ReadAll(reader)
+	if !strings.Contains(string(rest), "[DONE]") {
+		t.Fatalf("stream did not complete: %q", rest)
+	}
+	if event := <-events; event.StatusCode != http.StatusOK {
+		t.Fatalf("streamed response status not traced: %#v", event)
+	}
+}
+
+func newTestProxy(t *testing.T, upstream string, sink Sink) http.Handler {
+	t.Helper()
+	target, err := url.Parse(upstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(target, "support", "2", sink)
 }
