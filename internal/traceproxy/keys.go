@@ -114,13 +114,16 @@ func (s *KeyStore) Authenticate(header http.Header) (APIKey, bool) {
 }
 
 var invalidKeyBody = func() []byte {
-	raw, _ := json.Marshal(map[string]any{"error": map[string]any{
+	var body bytes.Buffer
+	encoder := json.NewEncoder(&body)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(map[string]any{"error": map[string]any{
 		"message": "Invalid or missing API key. Send your Kionga project key as 'Authorization: Bearer <key>' or 'x-api-key'.",
 		"type":    "invalid_api_key",
 		"code":    "invalid_api_key",
 		"param":   nil,
 	}})
-	return raw
+	return body.Bytes()
 }()
 
 func writeInvalidKey(w http.ResponseWriter) {
