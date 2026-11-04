@@ -23,7 +23,14 @@ it for OpenAI-compatible calls, which is why the agent runtime's `openai` and
 `http://localhost:8000`), the project keys (`TRACE_PROXY_KEYS`) and the upstream
 credential (`LLM_UPSTREAM_API_KEY`, `LLM_UPSTREAM_AUTH_HEADER`,
 `LLM_UPSTREAM_AUTH_SCHEME`), picks the sink from `TRACE_SINK_FORMAT`, and serves on
-`PORT` (default `8081`) with 120-second read, write and idle timeouts.
+`PORT` (default `8081`) with 120-second read and idle timeouts and a write timeout
+of `TRACE_PROXY_WRITE_TIMEOUT_SECONDS` (default `660`, from 1 to `3600`, anything else
+stops startup). The write timeout covers a whole response, stream included, and must
+outlast every caller: agent runner 600 s < gateway client about 630 s < proxy 660 s.
+If the proxy gives up first, the provider call completes and is billed, the reply is
+lost and the caller retries. The read timeout does not end slow responses, because
+`net/http` clears the read deadline once the request body is read, and the reverse
+proxy's default transport has no response header timeout.
 
 ### `internal/traceproxy`
 

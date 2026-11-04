@@ -27,7 +27,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	server := &http.Server{Addr: ":" + env("PORT", "8081"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 120 * time.Second}
+	writeTimeout, err := writeTimeoutFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	server := newServer(":"+env("PORT", "8081"), handler, writeTimeout)
 	mode := "project keys required, no upstream credential"
 	if cfg.UpstreamCredential.Value != "" {
 		mode = "project keys required, upstream credential injected as " + cfg.UpstreamCredential.Header
@@ -38,6 +42,35 @@ func main() {
 	}
 	log.Printf("trace proxy listening on %s and forwarding to %s; %s", server.Addr, cfg.Upstream.Redacted(), mode)
 	log.Fatal(server.ListenAndServe())
+}
+
+const (
+	// defaultWriteTimeout must exceed every caller's budget: an agent turn takes up
+	// to 600 s and the gateway waits about 630 s. When the proxy gives up first, the
+	// provider call completes and is billed, the reply is lost, and the caller retries.
+	defaultWriteTimeout = 660 * time.Second
+	maximumWriteTimeout = time.Hour
+)
+
+// writeTimeoutFromEnv reads TRACE_PROXY_WRITE_TIMEOUT_SECONDS, the total time from
+// reading a request's headers to the end of its response, including a whole stream.
+func writeTimeoutFromEnv() (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv("TRACE_PROXY_WRITE_TIMEOUT_SECONDS"))
+	if value == "" {
+		return defaultWriteTimeout, nil
+	}
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || seconds <= 0 || seconds > int64(maximumWriteTimeout/time.Second) {
+		return 0, fmt.Errorf("TRACE_PROXY_WRITE_TIMEOUT_SECONDS must be a whole number of seconds from 1 to %d", int64(maximumWriteTimeout/time.Second))
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+// newServer builds the HTTP server. ReadTimeout bounds only receiving the request:
+// net/http clears the read deadline once the body is read, so it does not end a slow
+// response. IdleTimeout applies between requests.
+func newServer(addr string, handler http.Handler, writeTimeout time.Duration) *http.Server {
+	return &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: writeTimeout, IdleTimeout: 120 * time.Second}
 }
 
 // configure builds the proxy configuration from the environment.

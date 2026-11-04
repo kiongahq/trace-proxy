@@ -78,6 +78,7 @@ server such as vLLM. Neither key is written to a trace or a log.
 | `LLM_UPSTREAM_API_KEY` / `LLM_UPSTREAM_API_KEY_FILE` | unset | Provider key injected on every authenticated call |
 | `LLM_UPSTREAM_AUTH_HEADER` | `Authorization` | `x-api-key` for Anthropic, `api-key` for Azure OpenAI |
 | `LLM_UPSTREAM_AUTH_SCHEME` | `Bearer` for `Authorization`, else none | Prefix before the key |
+| `TRACE_PROXY_WRITE_TIMEOUT_SECONDS` | `660` | Total time for one response, stream included (1 to 3600). Keep it above your callers' timeouts |
 | `TRACE_SINK_URL`, `TRACE_SINK_FORMAT`, `TRACE_SINK_TOKEN` | unset | Where events go |
 | `MLAIOPS_AGENT_NAME`, `MLAIOPS_AGENT_VERSION` | `unknown` | Default agent identity for events |
 
