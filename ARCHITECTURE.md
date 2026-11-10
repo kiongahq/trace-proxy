@@ -42,7 +42,7 @@ proxy's default transport has no response header timeout.
   answers an unknown or missing key with an OpenAI-shaped `401`
   (`{"error":{"type":"invalid_api_key",...}}`); the upstream never sees it. The
   rewrite step removes the caller's credential headers and adds
-  `X-MLAIOps-Agent` and `X-MLAIOps-Agent-Version`. A `statusRecorder` captures
+  `X-Kionga-Agent` and `X-Kionga-Agent-Version`. A `statusRecorder` captures
   the upstream status code; it implements `Flush` and `Unwrap`, so the reverse
   proxy flushes each `text/event-stream` chunk at once and streamed completions
   arrive token by token.
@@ -50,7 +50,7 @@ proxy's default transport has no response header timeout.
   `TRACE_PROXY_KEYS`. It accepts `Authorization: Bearer <key>`, `x-api-key` or
   `api-key` and compares the hash with every stored hash in constant time.
 - `Event` is the trace record: `agent` (the key's agent, or
-  `MLAIOPS_AGENT_NAME`), `version`, `project` and `key_id` (from the matched key;
+  `KIONGA_AGENT_NAME`), `version`, `project` and `key_id` (from the matched key;
   the key itself is never recorded), `session_id` (from the client's
   `X-Session-ID` header), `status_code`, `duration_ms`, `created_at`, and an
   optional `model` field that the proxy does not fill in today.
@@ -94,22 +94,22 @@ A two-stage build: a static, stripped binary from `golang:1.26.10-alpine`, run o
 
 ## How it connects to other components
 
-- **agent-runtime**: in the local Compose stack, `MLAIOPS_LLM_BASE_URL` defaults to
+- **agent-runtime**: in the local Compose stack, `KIONGA_LLM_BASE_URL` defaults to
   `http://trace-proxy:8081/v1`, so `openai` and `openai-compatible` agent calls go
   through one shared proxy. The agent's `OPENAI_API_KEY` is then its Kionga
   project key; the provider key belongs in the proxy's `LLM_UPSTREAM_API_KEY`. The `anthropic` backend calls Anthropic directly and is
   not traced here.
 - **platform**: on Kubernetes, the operator adds the proxy as a `trace-proxy`
   sidecar container (port `8081`, image `TRACE_PROXY_IMAGE`) to every agent pod,
-  with `MLAIOPS_AGENT_NAME` set to the agent's name. The sidecar needs
+  with `KIONGA_AGENT_NAME` set to the agent's name. The sidecar needs
   `TRACE_PROXY_KEYS` (or `TRACE_PROXY_KEYS_FILE`) and, for hosted providers,
   `LLM_UPSTREAM_API_KEY`.
 - **Kafka**: `deploy/compose.yaml` sets `TRACE_SINK_FORMAT=kafka-rest` and
-  publishes to the `mlaiops.llm.traces` topic through the `kafka-rest` service.
+  publishes to the `kionga.llm.traces` topic through the `kafka-rest` service.
 
 ## Cross-cutting concerns
 
-- **Event schema.** Consumers of `mlaiops.llm.traces` read the `Event` JSON fields.
+- **Event schema.** Consumers of `kionga.llm.traces` read the `Event` JSON fields.
   Adding a field is compatible; renaming or removing one is not.
 - **Security gates.** CI runs gofmt, vet, race tests, build, govulncheck, gosec and
   gitleaks through the shared Go workflow. See [CONTRIBUTING.md](CONTRIBUTING.md).

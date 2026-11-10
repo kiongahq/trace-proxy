@@ -68,7 +68,7 @@ does: `type(scope): summary` in the imperative mood, for example
 - Keep one logical change per pull request, with tests for new behavior.
 - CI must pass. Do not skip hooks or checks.
 - A change to the trace event fields is a change for every consumer of the
-  `mlaiops.llm.traces` topic. Say so in the pull request description.
+  `kionga.llm.traces` topic. Say so in the pull request description.
 
 ## Reviewed scanner findings
 
