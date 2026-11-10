@@ -84,7 +84,7 @@ func configure() (traceproxy.Config, error) {
 	if os.Getenv("TRACE_SINK_FORMAT") == "kafka-rest" {
 		sink = traceproxy.KafkaRESTSink{URL: os.Getenv("TRACE_SINK_URL"), Client: client}
 	}
-	cfg := traceproxy.Config{Upstream: upstream, Agent: env("MLAIOPS_AGENT_NAME", "unknown"), Version: env("MLAIOPS_AGENT_VERSION", "unknown"), Sink: sink}
+	cfg := traceproxy.Config{Upstream: upstream, Agent: env("KIONGA_AGENT_NAME", "unknown"), Version: env("KIONGA_AGENT_VERSION", "unknown"), Sink: sink}
 	if raw := strings.TrimSpace(os.Getenv("TRACE_PROXY_KEYS")); raw != "" {
 		if cfg.Keys, err = traceproxy.ParseKeys(raw); err != nil {
 			return traceproxy.Config{}, err

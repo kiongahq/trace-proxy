@@ -21,7 +21,7 @@ type APIKey struct {
 	SHA256 string `json:"key_sha256"`
 	// Project the key's calls are attributed to.
 	Project string `json:"project"`
-	// Agent optionally overrides MLAIOPS_AGENT_NAME for this key's traces.
+	// Agent optionally overrides KIONGA_AGENT_NAME for this key's traces.
 	Agent string `json:"agent,omitempty"`
 
 	hash []byte

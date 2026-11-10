@@ -18,7 +18,7 @@ func (s channelSink) Emit(event Event) { s <- event }
 
 func TestProxyForwardsAndEmitsTrace(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-MLAIOps-Agent") != "support" {
+		if r.Header.Get("X-Kionga-Agent") != "support" {
 			t.Error("agent header missing")
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -126,7 +126,7 @@ func TestKafkaRESTSinkUsesConfluentEnvelope(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer topic.Close()
-	sink := KafkaRESTSink{URL: topic.URL + "/topics/mlaiops.llm.traces", Client: topic.Client()}
+	sink := KafkaRESTSink{URL: topic.URL + "/topics/kionga.llm.traces", Client: topic.Client()}
 	sink.Emit(Event{Agent: "support", SessionID: "sess-9", StatusCode: 200, CreatedAt: time.Now()})
 	payload := <-received
 	records, ok := payload["records"].([]any)

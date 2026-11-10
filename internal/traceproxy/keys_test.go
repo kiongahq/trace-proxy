@@ -160,7 +160,7 @@ func TestProjectKeyNeverReachesUpstream(t *testing.T) {
 			t.Fatalf("client credential header %s reached the upstream: %q", name, headers.Get(name))
 		}
 	}
-	if headers.Get("X-MLAIOps-Agent") != "support-bot" {
+	if headers.Get("X-Kionga-Agent") != "support-bot" {
 		t.Fatalf("agent header should follow the key's agent: %v", headers)
 	}
 }

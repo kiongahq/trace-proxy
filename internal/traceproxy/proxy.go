@@ -56,7 +56,7 @@ func (s HTTPSink) Emit(event Event) {
 }
 
 // KafkaRESTSink publishes events to the Karapace Kafka REST endpoint using its
-// Confluent-compatible envelope, e.g. http://kafka-rest:8082/topics/mlaiops.llm.traces.
+// Confluent-compatible envelope, e.g. http://kafka-rest:8082/topics/kionga.llm.traces.
 type KafkaRESTSink struct {
 	URL    string
 	Client *http.Client
@@ -184,8 +184,8 @@ func New(cfg Config) (http.Handler, error) {
 				callerAgent = key.Agent
 			}
 		}
-		r.Out.Header.Set("X-MLAIOps-Agent", callerAgent)
-		r.Out.Header.Set("X-MLAIOps-Agent-Version", version)
+		r.Out.Header.Set("X-Kionga-Agent", callerAgent)
+		r.Out.Header.Set("X-Kionga-Agent-Version", version)
 	}}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {

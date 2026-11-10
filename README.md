@@ -58,7 +58,7 @@ missing or unknown key gets `401` with
 `{"error":{"type":"invalid_api_key",...}}` and never reaches the upstream. Each
 entry in `TRACE_PROXY_KEYS` has `key_id` (recorded in traces), `key_sha256`
 (lowercase hex), `project` (recorded in traces) and an optional `agent` that
-overrides `MLAIOPS_AGENT_NAME` for that key. The proxy refuses to start without
+overrides `KIONGA_AGENT_NAME` for that key. The proxy refuses to start without
 keys. For local development only, `TRACE_PROXY_ALLOW_UNAUTHENTICATED=true` runs it
 without keys and forwards the client's own credentials unchanged; production
 (`KIONGA_ENVIRONMENT=production`) refuses that mode, and it cannot be combined
@@ -80,11 +80,11 @@ server such as vLLM. Neither key is written to a trace or a log.
 | `LLM_UPSTREAM_AUTH_SCHEME` | `Bearer` for `Authorization`, else none | Prefix before the key |
 | `TRACE_PROXY_WRITE_TIMEOUT_SECONDS` | `660` | Total time for one response, stream included (1 to 3600). Keep it above your callers' timeouts |
 | `TRACE_SINK_URL`, `TRACE_SINK_FORMAT`, `TRACE_SINK_TOKEN` | unset | Where events go |
-| `MLAIOPS_AGENT_NAME`, `MLAIOPS_AGENT_VERSION` | `unknown` | Default agent identity for events |
+| `KIONGA_AGENT_NAME`, `KIONGA_AGENT_VERSION` | `unknown` | Default agent identity for events |
 
 Set
 `TRACE_SINK_FORMAT=kafka-rest` and a Kafka REST topic URL (for example
-`http://kafka-rest:8082/topics/mlaiops.llm.traces`) to publish to Kafka.
+`http://kafka-rest:8082/topics/kionga.llm.traces`) to publish to Kafka.
 `GET /healthz` reports liveness. The
 [Configuration reference](https://kiongahq.github.io/docs/reference/configuration/)
 lists every setting.
