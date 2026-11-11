@@ -73,7 +73,7 @@ platform's `go/internal/runtimeconfig`; keep the shared loading rules in step.
 
 ### `Dockerfile`, `Makefile`
 
-A two-stage build: a static, stripped binary from `golang:1.26.10-alpine`, run on
+A two-stage build: a static, stripped binary from `golang:1.26.11-alpine`, run on
 `gcr.io/distroless/static-debian12:nonroot`. `make verify`, `make build` and
 `make image` are the local entry points.
 
